@@ -5,8 +5,8 @@ import handlers.data_handler as dh
 from pages.single_symbol import single_symbol_page
 from pages.all_symbols import all_symbols_page
 
-single_symbol_page = st.Page(single_symbol_page, title="Single Symbol", icon="📊")
-all_symbols_page = st.Page(all_symbols_page, title="All Symbols", icon="📈")
+single_symbol_page_st = st.Page(single_symbol_page, title="Single Symbol", icon="📊")
+all_symbols_page_st = st.Page(all_symbols_page, title="All Symbols", icon="📈")
 
 def main():
     st.title("OHLC Data Analysis")
@@ -27,20 +27,22 @@ def main():
         with rightcol:
             st.metric("Number of Timeframes", len(st.session_state.available_timeframes))
 
+    all_symbols_page()
+
     st.header("Actions")
     if st.button("Analyze Single Symbol", use_container_width=True):
-        st.switch_page(single_symbol_page)
+        st.switch_page(single_symbol_page_st)
     if st.button("Analyze All Symbols", use_container_width=True):
-        st.switch_page(all_symbols_page)
+        st.switch_page(all_symbols_page_st)
 
-home_page = st.Page(main, icon="🏠")
+home_page_st = st.Page(main, icon="🏠")
 
 
 pg = st.navigation(
     [
-        home_page,
-        single_symbol_page,
-        all_symbols_page,
+        home_page_st,
+        single_symbol_page_st,
+        all_symbols_page_st,
     ], 
     position="hidden"
 )
