@@ -3,7 +3,7 @@ import numpy as np
 from itertools import product
 
 def annotate_previous_movement(data: pd.DataFrame, history_len: int) -> pd.DataFrame:
-    data[f"prev_1"] = (((data["close"].shift(1) < data["close"]).astype(int)) * 2 ) -1
+    data[f"prev_1"] = (((data["close"].shift(1) <= data["close"]).astype(int)) * 2 ) -1
     for i in range(2, history_len + 1):
         data[f"prev_{i}"] = data[f"prev_{i - 1}"].shift(1)
     data.dropna(inplace=True)
@@ -17,12 +17,19 @@ def annotate_return(data: pd.DataFrame, future_len: int) -> pd.DataFrame:
     
     return data
 
-def get_stats_from_previous_movement(data_input: pd.DataFrame, history_len: int, return_len: int) -> pd.DataFrame:
-    # Work on a copy of the data
+def annotate_movement_up(data: pd.DataFrame, history_len: int) -> pd.DataFrame:
+    data[f'close_increasing_{history_len}'] = data['close'].rolling(history_len).apply(lambda x: all(x[i] < x[i+1] for i in range(len(x)-1)), raw=True).fillna(0.0)
+    # -1).astype(bool)
+    return data
+
+def annotate_data(data_input: pd.DataFrame, history_len: int, future_len: int) -> pd.DataFrame:
     data = data_input.copy()
     data = annotate_previous_movement(data, history_len)
-    data = annotate_return(data, return_len)
+    data = annotate_return(data, future_len)
+    return data
 
+def get_stats_from_previous_movement(data: pd.DataFrame, history_len: int, return_len: int) -> pd.DataFrame:
+    
     # Define return column names and force them to be float
     return_cols = [f"return_{i}" for i in range(1, return_len + 1)]
     for col in return_cols:
@@ -71,6 +78,41 @@ def get_stats_from_previous_movement(data_input: pd.DataFrame, history_len: int,
     df = pd.DataFrame(stats, columns=["pattern", "count"] + return_cols)
     df = df.sort_values("count", ascending=False).reset_index(drop=True)
     return df
+
+
+def aggregate_movement_stats(movement_stats_accumulated: pd.DataFrame) -> pd.DataFrame:
+    # Identify all columns with "return" in their name.
+    return_cols = [col for col in movement_stats_accumulated.columns if "return" in col]
+    
+    # Group by "pattern" and aggregate the "count" and each "return" column by summing.
+    aggregated = movement_stats_accumulated.groupby("pattern").agg(
+        {"count": "sum", **{col: "sum" for col in return_cols}}
+    ).reset_index()
+
+    # Define the null pattern as a tuple of zeros.
+    null_pattern = tuple(0 for _ in range(len([col for col in movement_stats_accumulated.columns if "prev_" in col])))
+    
+    # Calculate the total number of klines using the count for the null pattern.
+    total_number_klines = aggregated.loc[aggregated["pattern"] == null_pattern, "count"].sum()
+    print(total_number_klines)
+    
+    # Compute the share (as a percentage) of each pattern relative to the null pattern.
+    aggregated["share"] = 100 * aggregated["count"] / total_number_klines
+    
+    # Create a tuple with the summed return values.
+    aggregated["sum_return"] = aggregated.apply(lambda row: tuple(row[return_cols]), axis=1)
+    
+    # For each return column, calculate the percentage relative to the total count.
+    for col in return_cols:
+        aggregated[f"percentage_{col}"] = aggregated[col] / aggregated["count"]
+    
+    # Combine the percentage returns into a tuple.
+    aggregated["sum_percentage"] = aggregated.apply(
+        lambda row: tuple(row[[f"percentage_{col}" for col in return_cols]]), axis=1
+
+    )
+    
+    return aggregated
 
 
 

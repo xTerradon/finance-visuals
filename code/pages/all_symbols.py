@@ -22,7 +22,8 @@ def del_session_ohlc():
 def analyze_ohlc_data():
     history_len = st.session_state.history_len
     return_len = st.session_state.return_len
-    st.session_state.movement_stats = ah.get_stats_from_previous_movement(st.session_state.ohlc_data, history_len, return_len)
+    st.session_state.ohlc_data_annotated = ah.annotate_data(st.session_state.ohlc_data, history_len, return_len)
+    st.session_state.movement_stats = ah.get_stats_from_previous_movement(st.session_state.ohlc_data_annotated, history_len, return_len)
     st.session_state.movement_stats["symbol"] = st.session_state.selected_symbol
 
     if "movement_stats_accumulated" in st.session_state:
@@ -30,20 +31,6 @@ def analyze_ohlc_data():
     else:
         st.session_state.movement_stats_accumulated = st.session_state.movement_stats
 
-
-def aggregate_movement_stats():
-    return_cols = [col for col in st.session_state.movement_stats_accumulated.columns if "return" in col]
-    st.session_state.movement_stats_aggregated = st.session_state.movement_stats_accumulated.groupby(["pattern"]).agg({"count": "sum", **{col: "sum" for col in return_cols}}).reset_index()
-    
-
-    null_pattern = tuple([0 for _ in range(st.session_state.history_len)])
-    total_number_klines = st.session_state.movement_stats_aggregated[st.session_state.movement_stats_aggregated["pattern"] == null_pattern]["count"].sum()
-    st.session_state.movement_stats_aggregated["share"] = 100 * st.session_state.movement_stats_aggregated["count"] / total_number_klines
-    st.session_state.movement_stats_aggregated["sum_return"] = st.session_state.movement_stats_aggregated.apply(lambda row: tuple(row[return_cols]), axis=1)
-
-    for return_col in return_cols:
-        st.session_state.movement_stats_aggregated[f"percentage_{return_col}"] = st.session_state.movement_stats_aggregated[return_col] / st.session_state.movement_stats_aggregated["count"]
-    st.session_state.movement_stats_aggregated["sum_percentage"] = st.session_state.movement_stats_aggregated.apply(lambda row: tuple(row[[f"percentage_{return_col}" for return_col in return_cols]]), axis=1)
 
 
 def all_symbols_page():
@@ -55,8 +42,8 @@ def all_symbols_page():
         st.slider("Return Length", min_value=1, max_value=10, value=2, key="return_len")
         
         if st.button("Start Analysis", disabled="total_klines_loaded" in st.session_state):
-            if "updown.csv" in os.listdir("../evaluation_data/"):
-                st.session_state.movement_stats_aggregated = pd.read_csv("../evaluation_data/updown.csv")
+            if f"updown_h{st.session_state.history_len}_r{st.session_state.return_len}.pkl" in os.listdir("../evaluation_data/"):
+                st.session_state.movement_stats_aggregated = pd.read_pickle(f"../evaluation_data/updown_h{st.session_state.history_len}_r{st.session_state.return_len}.pkl")
             else:
                 del_session_ohlc()
                 st.session_state.total_klines_loaded = 0
@@ -73,15 +60,17 @@ def all_symbols_page():
                         analyze_ohlc_data()
                 
                 analysis_progress.progress(0.999, "Aggregating Movement Data")
-                aggregate_movement_stats()
+                st.session_state.movement_stats_aggregated = ah.aggregate_movement_stats(st.session_state.movement_stats_accumulated)
+                st.session_state.movement_stats_aggregated.to_pickle(f"../evaluation_data/updown_h{st.session_state.history_len}_r{st.session_state.return_len}.pkl")
                 analysis_progress.progress(1.0, "Analysis completed")
                 del st.session_state.total_klines_loaded
         
     if "movement_stats_aggregated" in st.session_state:
         st.divider()
 
-        with st.expander("Show Movement Stats", expanded=False):
-            st.dataframe(st.session_state.movement_stats_aggregated, use_container_width=True, hide_index=True)
+        if "movement_stats_accumulated" in st.session_state:
+            with st.expander("Show Movement Stats", expanded=False):
+                st.dataframe(st.session_state.movement_stats_accumulated, use_container_width=True, hide_index=True)
 
         st.dataframe(
             st.session_state.movement_stats_aggregated,
@@ -114,7 +103,17 @@ def all_symbols_page():
                 y_label="Return after 1 kline",
                 color="share",
             )
-    
+
+    if "ohlc_data_annotated" in st.session_state:
+        with st.container(border=True):
+            with st.expander("Filter by Pattern", expanded=False):
+                st.dataframe(st.session_state.ohlc_data_annotated, use_container_width=True, hide_index=True)
+            st.write(st.session_state.movement_stats_aggregated.columns)
+            st.selectbox("Pattern", st.session_state.movement_stats_aggregated["pattern"].unique(), key="selected_pattern")
+
+            ohlc_data_filtered = st.session_state.ohlc_data_annotated[st.session_state.ohlc_data_annotated["pattern"] == st.session_state.selected_pattern]
+            st.write(ohlc_data_filtered["return_1"].describe())
+        
     # TODO: somehow check for recent X days in comparison to all-time
     # TODO: check for current situations that would allow for a prediction
     # TODO: check that symbols history against the overall history
